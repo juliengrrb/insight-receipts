@@ -2,39 +2,80 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* Modern Financial Dashboard Design System */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-
+    /* Main Background & Surface Colors */
+    --background: 240 8% 96%;
+    --foreground: 225 15% 15%;
+    
+    /* Card & Surface Colors */
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-
+    --card-foreground: 225 15% 15%;
+    
+    /* Financial Primary Colors - Professional Blue */
+    --primary: 214 84% 56%;
+    --primary-foreground: 0 0% 100%;
+    --primary-light: 214 84% 70%;
+    --primary-dark: 214 84% 42%;
+    
+    /* Success & Financial Green */
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --success-light: 142 76% 50%;
+    
+    /* Warning & Attention Orange */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    
+    /* Error & Destructive Red */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    /* Secondary & Muted Colors */
+    --secondary: 210 20% 92%;
+    --secondary-foreground: 225 15% 25%;
+    
+    --muted: 210 20% 92%;
+    --muted-foreground: 225 10% 50%;
+    
+    /* Accent Colors */
+    --accent: 214 84% 95%;
+    --accent-foreground: 214 84% 25%;
+    
+    /* Interactive Elements */
+    --border: 210 20% 85%;
+    --input: 210 20% 90%;
+    --ring: 214 84% 56%;
+    
+    /* Popover */
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --popover-foreground: 225 15% 15%;
+    
+    /* Chart Colors */
+    --chart-1: 214 84% 56%;
+    --chart-2: 142 76% 36%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(214 84% 56%) 0%, hsl(214 84% 42%) 100%);
+    --gradient-success: linear-gradient(135deg, hsl(142 76% 36%) 0%, hsl(142 76% 50%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(0 0% 100%) 0%, hsl(210 20% 98%) 100%);
+    --gradient-hero: linear-gradient(135deg, hsl(214 84% 56%) 0%, hsl(280 65% 60%) 100%);
+    
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 hsl(225 15% 15% / 0.05);
+    --shadow-md: 0 4px 6px -1px hsl(225 15% 15% / 0.1), 0 2px 4px -1px hsl(225 15% 15% / 0.06);
+    --shadow-lg: 0 10px 15px -3px hsl(225 15% 15% / 0.1), 0 4px 6px -2px hsl(225 15% 15% / 0.05);
+    --shadow-xl: 0 20px 25px -5px hsl(225 15% 15% / 0.1), 0 10px 10px -5px hsl(225 15% 15% / 0.04);
+    --shadow-glow: 0 0 20px hsl(214 84% 56% / 0.3);
+    
+    /* Transitions */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
 
     --radius: 0.5rem;
 
@@ -100,6 +141,126 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+  }
+}
+
+@layer components {
+  /* Upload Zone Animation */
+  .upload-zone {
+    @apply relative overflow-hidden rounded-xl border-2 border-dashed border-border 
+           bg-gradient-to-br from-card to-secondary/50 p-8 text-center
+           transition-all duration-300 hover:border-primary hover:shadow-lg;
+  }
+  
+  .upload-zone.dragover {
+    @apply border-primary bg-primary/5 shadow-xl;
+    transform: scale(1.02);
+  }
+
+  /* Invoice Card Hover Effect */
+  .invoice-card {
+    @apply relative overflow-hidden rounded-lg bg-gradient-to-br from-card to-secondary/30
+           border border-border shadow-sm transition-all duration-300
+           hover:shadow-xl hover:-translate-y-1 hover:border-primary/50;
+  }
+  
+  .invoice-card::before {
+    content: '';
+    @apply absolute inset-0 bg-gradient-to-r from-primary/0 via-primary/5 to-primary/0
+           opacity-0 transition-opacity duration-300;
+  }
+  
+  .invoice-card:hover::before {
+    @apply opacity-100;
+  }
+
+  /* Stats Card Gradient */
+  .stats-card {
+    @apply relative overflow-hidden rounded-xl border border-border/50
+           bg-gradient-to-br from-card via-card to-secondary/20 p-6
+           shadow-md transition-all duration-300 hover:shadow-lg;
+  }
+  
+  .stats-card-primary {
+    @apply bg-gradient-to-br from-primary/5 via-card to-primary/10
+           border-primary/20 hover:shadow-glow;
+  }
+  
+  .stats-card-success {
+    @apply bg-gradient-to-br from-success/5 via-card to-success/10
+           border-success/20;
+  }
+  
+  .stats-card-warning {
+    @apply bg-gradient-to-br from-warning/5 via-card to-warning/10
+           border-warning/20;
+  }
+
+  /* Animated Chart Container */
+  .chart-container {
+    @apply relative overflow-hidden rounded-lg bg-card border border-border
+           shadow-sm transition-all duration-300 hover:shadow-md;
+  }
+
+  /* Category Badge */
+  .category-badge {
+    @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-medium
+           transition-all duration-200 hover:scale-105;
+  }
+  
+  .category-badge-primary {
+    @apply bg-primary/10 text-primary border border-primary/20;
+  }
+  
+  .category-badge-success {
+    @apply bg-success/10 text-success border border-success/20;
+  }
+  
+  .category-badge-warning {
+    @apply bg-warning/10 text-warning border border-warning/20;
+  }
+
+  /* Smooth Fade In Animation */
+  .fade-in {
+    animation: fadeIn 0.5s ease-out forwards;
+  }
+  
+  .fade-in-delay {
+    animation: fadeIn 0.5s ease-out 0.2s forwards;
+    opacity: 0;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }
