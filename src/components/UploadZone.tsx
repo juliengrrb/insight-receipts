@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { Upload, FileText, Image, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 
 interface UploadedFile {
@@ -21,6 +22,7 @@ const WEBHOOK_URL = "https://n8n.srv892002.hstgr.cloud/webhook-test/ccb6a28e-56d
 export const UploadZone = () => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const simulateUpload = (file: UploadedFile) => {
     const interval = setInterval(() => {
@@ -47,7 +49,9 @@ export const UploadZone = () => {
           fileSize: file.size,
           fileType: file.type,
           timestamp: new Date().toISOString(),
-          status: 'processed'
+          status: 'processed',
+          userId: user?.id,
+          userEmail: user?.email
         };
 
         // Use multiple approaches to ensure delivery

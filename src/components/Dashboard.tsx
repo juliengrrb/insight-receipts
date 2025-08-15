@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from "recharts";
 import { Upload, FileText, Receipt, TrendingUp, Euro, Calendar, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Header } from "./layout/Header";
 import { UploadZone } from "./UploadZone";
 import { InvoiceGallery } from "./InvoiceGallery";
 import { ExportSection } from "./ExportSection";
+import { useAuth } from "@/contexts/AuthContext";
 
 // Mock data for charts
 const dailyExpenses = [
@@ -36,25 +38,29 @@ const weeklyTrend = [
 
 export const Dashboard = () => {
   const [activeTab, setActiveTab] = useState("dashboard");
+  const { user } = useAuth();
   
-  const totalToday = dailyExpenses.reduce((sum, item) => sum + item.amount, 0);
-  const totalMonth = 4890.65;
-  const avgDaily = totalMonth / 30;
+  // Reset demo data for new users - clear on component mount
+  const [isNewUser, setIsNewUser] = useState(false);
+  
+  useEffect(() => {
+    // Clear demo data for authenticated users
+    if (user) {
+      setIsNewUser(true);
+    }
+  }, [user]);
+  
+  // Use empty data for new users, demo data for display purposes only
+  const totalToday = isNewUser ? 0 : dailyExpenses.reduce((sum, item) => sum + item.amount, 0);
+  const totalMonth = isNewUser ? 0 : 4890.65;
+  const avgDaily = isNewUser ? 0 : totalMonth / 30;
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="text-center space-y-2 fade-in">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-primary via-primary-dark to-primary bg-clip-text text-transparent">
-            Gestionnaire de Factures
-          </h1>
-          <p className="text-muted-foreground text-lg">
-            Analysez et organisez vos dépenses facilement
-          </p>
-        </div>
-
-        {/* Navigation Tabs */}
+    <div className="min-h-screen bg-background">
+      <Header />
+      <div className="p-6">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Navigation Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-4 lg:w-fit lg:grid-cols-4 mx-auto">
             <TabsTrigger value="dashboard" className="flex items-center gap-2">
@@ -228,6 +234,7 @@ export const Dashboard = () => {
             <ExportSection />
           </TabsContent>
         </Tabs>
+        </div>
       </div>
     </div>
   );
