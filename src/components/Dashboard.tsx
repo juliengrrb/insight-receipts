@@ -9,51 +9,137 @@ import { UploadZone } from "./UploadZone";
 import { InvoiceGallery } from "./InvoiceGallery";
 import { ExportSection } from "./ExportSection";
 import { useAuth } from "@/contexts/AuthContext";
-
-// Mock data for charts
-const dailyExpenses = [
-  { day: "Lun", amount: 145.50 },
-  { day: "Mar", amount: 89.30 },
-  { day: "Mer", amount: 234.80 },
-  { day: "Jeu", amount: 67.20 },
-  { day: "Ven", amount: 198.40 },
-  { day: "Sam", amount: 156.90 },
-  { day: "Dim", amount: 78.60 },
-];
-
-const expensesByCategory = [
-  { name: "Grand Frais", value: 456.80, color: "#3B82F6" },
-  { name: "Metro", value: 234.50, color: "#10B981" },
-  { name: "Carrefour", value: 189.20, color: "#F59E0B" },
-  { name: "Pharmacie", value: 67.40, color: "#EF4444" },
-  { name: "Autres", value: 123.10, color: "#8B5CF6" },
-];
-
-const weeklyTrend = [
-  { week: "S1", amount: 1250.30 },
-  { week: "S2", amount: 1456.80 },
-  { week: "S3", amount: 1123.40 },
-  { week: "S4", amount: 1678.90 },
-];
+import { supabase } from "@/integrations/supabase/client";
 
 export const Dashboard = () => {
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [invoicesData, setInvoicesData] = useState<any[]>([]);
+  const [totalToday, setTotalToday] = useState(0);
+  const [totalMonth, setTotalMonth] = useState(0);
+  const [averageDaily, setAverageDaily] = useState(0);
   const { user } = useAuth();
-  
-  // Reset demo data for new users - clear on component mount
-  const [isNewUser, setIsNewUser] = useState(false);
-  
+
+  // Load user's invoices and listen for real-time updates
   useEffect(() => {
-    // Clear demo data for authenticated users
-    if (user) {
-      setIsNewUser(true);
-    }
+    if (!user) return;
+
+    // Initial load
+    loadInvoices();
+
+    // Set up real-time subscription
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'Data base',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('Real-time update:', payload);
+          loadInvoices(); // Reload data when changes occur
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
-  
-  // Use empty data for new users, demo data for display purposes only
-  const totalToday = isNewUser ? 0 : dailyExpenses.reduce((sum, item) => sum + item.amount, 0);
-  const totalMonth = isNewUser ? 0 : 4890.65;
-  const avgDaily = isNewUser ? 0 : totalMonth / 30;
+
+  const loadInvoices = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('Data base')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setInvoicesData(data || []);
+      calculateStats(data || []);
+    } catch (error) {
+      console.error('Error loading invoices:', error);
+    }
+  };
+
+  const calculateStats = (invoices: any[]) => {
+    const today = new Date().toDateString();
+    const thisMonth = new Date().getMonth();
+    const thisYear = new Date().getFullYear();
+
+    const todayTotal = invoices
+      .filter(inv => new Date(inv.created_at).toDateString() === today)
+      .reduce((sum, inv) => sum + (inv.total_ttc || 0), 0);
+
+    const monthTotal = invoices
+      .filter(inv => {
+        const invDate = new Date(inv.created_at);
+        return invDate.getMonth() === thisMonth && invDate.getFullYear() === thisYear;
+      })
+      .reduce((sum, inv) => sum + (inv.total_ttc || 0), 0);
+
+    const daysInMonth = new Date(thisYear, thisMonth + 1, 0).getDate();
+    const avgDaily = monthTotal / daysInMonth;
+
+    setTotalToday(todayTotal);
+    setTotalMonth(monthTotal);
+    setAverageDaily(avgDaily);
+  };
+
+  // Process invoices data for charts
+  const processChartData = () => {
+    if (!invoicesData.length) {
+      return {
+        dailyExpenses: [],
+        expensesByCategory: [],
+        weeklyTrend: []
+      };
+    }
+
+    // Group by date for daily expenses
+    const dailyData = invoicesData.reduce((acc: any, inv) => {
+      const date = new Date(inv.created_at).toLocaleDateString('fr-FR', { 
+        day: '2-digit', 
+        month: '2-digit' 
+      });
+      acc[date] = (acc[date] || 0) + (inv.total_ttc || 0);
+      return acc;
+    }, {});
+
+    const dailyExpenses = Object.entries(dailyData).map(([date, amount]) => ({
+      day: date,
+      amount
+    }));
+
+    // Group by category
+    const categoryData = invoicesData.reduce((acc: any, inv) => {
+      const category = inv.categorie || 'Autre';
+      acc[category] = (acc[category] || 0) + (inv.total_ttc || 0);
+      return acc;
+    }, {});
+
+    const expensesByCategory = Object.entries(categoryData).map(([name, value], index) => ({
+      name,
+      value,
+      color: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'][index % 5]
+    }));
+
+    // Simple weekly trend based on creation dates
+    const weeklyTrend = dailyExpenses.slice(0, 7).map((item, index) => ({
+      week: `S${index + 1}`,
+      amount: item.amount
+    }));
+
+    return { dailyExpenses, expensesByCategory, weeklyTrend };
+  };
+
+  const chartData = processChartData();
 
   return (
     <div className="min-h-screen bg-background">
@@ -91,9 +177,9 @@ export const Dashboard = () => {
                   <Euro className="h-4 w-4 text-primary" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-primary">{totalToday.toFixed(2)}€</div>
+                  <div className="text-2xl font-bold text-primary">€{totalToday.toFixed(2)}</div>
                   <p className="text-xs text-muted-foreground">
-                    +12% par rapport à hier
+                    Basé sur vos factures uploadées
                   </p>
                 </CardContent>
               </Card>
@@ -104,9 +190,9 @@ export const Dashboard = () => {
                   <Calendar className="h-4 w-4 text-success" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-success">{totalMonth.toFixed(2)}€</div>
+                  <div className="text-2xl font-bold text-success">€{totalMonth.toFixed(2)}</div>
                   <p className="text-xs text-muted-foreground">
-                    156 factures ce mois
+                    {invoicesData.length} factures ce mois
                   </p>
                 </CardContent>
               </Card>
@@ -117,7 +203,7 @@ export const Dashboard = () => {
                   <Receipt className="h-4 w-4 text-warning" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-warning">{avgDaily.toFixed(2)}€</div>
+                  <div className="text-2xl font-bold text-warning">€{averageDaily.toFixed(2)}</div>
                   <p className="text-xs text-muted-foreground">
                     Basé sur 30 jours
                   </p>
@@ -132,12 +218,12 @@ export const Dashboard = () => {
                 <CardHeader>
                   <CardTitle>Dépenses par Jour</CardTitle>
                   <CardDescription>
-                    Évolution des dépenses cette semaine
+                    Évolution des dépenses basée sur vos factures
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={dailyExpenses}>
+                    <BarChart data={chartData.dailyExpenses}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                       <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" />
                       <YAxis stroke="hsl(var(--muted-foreground))" />
@@ -157,24 +243,24 @@ export const Dashboard = () => {
               {/* Category Pie Chart */}
               <Card className="chart-container fade-in-delay">
                 <CardHeader>
-                  <CardTitle>Répartition par Magasin</CardTitle>
+                  <CardTitle>Répartition par Catégorie</CardTitle>
                   <CardDescription>
-                    Distribution des dépenses par enseigne
+                    Distribution des dépenses par catégorie
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={300}>
                     <PieChart>
                       <Pie
-                        data={expensesByCategory}
+                        data={chartData.expensesByCategory}
                         cx="50%"
                         cy="50%"
                         outerRadius={100}
                         fill="#8884d8"
                         dataKey="value"
-                        label={(entry) => `${entry.name}: ${entry.value}€`}
+                        label={(entry) => `${entry.name}: €${entry.value.toFixed(2)}`}
                       >
-                        {expensesByCategory.map((entry, index) => (
+                        {chartData.expensesByCategory.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
@@ -188,14 +274,14 @@ export const Dashboard = () => {
             {/* Weekly Trend */}
             <Card className="chart-container fade-in-delay">
               <CardHeader>
-                <CardTitle>Tendance Mensuelle</CardTitle>
+                <CardTitle>Tendance des Dépenses</CardTitle>
                 <CardDescription>
-                  Évolution des dépenses par semaine
+                  Évolution basée sur vos données réelles
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={250}>
-                  <LineChart data={weeklyTrend}>
+                  <LineChart data={chartData.weeklyTrend}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis dataKey="week" stroke="hsl(var(--muted-foreground))" />
                     <YAxis stroke="hsl(var(--muted-foreground))" />

@@ -14,20 +14,23 @@ export type Database = {
   }
   public: {
     Tables: {
-      "invoice DB": {
+      "Data base": {
         Row: {
           article_description: string | null
           article_prix_unitaire: number | null
           article_quantite: number | null
           article_total: number | null
           categorie: string | null
+          created_at: string
           date: string | null
           fournisseur: string | null
+          id: number
+          image_url: string | null
           mode_paiement: string | null
           total_ht: number | null
           total_ttc: number | null
           tva: number | null
-          user_id: string
+          user_id: string | null
         }
         Insert: {
           article_description?: string | null
@@ -35,13 +38,16 @@ export type Database = {
           article_quantite?: number | null
           article_total?: number | null
           categorie?: string | null
+          created_at?: string
           date?: string | null
           fournisseur?: string | null
+          id?: number
+          image_url?: string | null
           mode_paiement?: string | null
           total_ht?: number | null
           total_ttc?: number | null
           tva?: number | null
-          user_id: string
+          user_id?: string | null
         }
         Update: {
           article_description?: string | null
@@ -49,13 +55,16 @@ export type Database = {
           article_quantite?: number | null
           article_total?: number | null
           categorie?: string | null
+          created_at?: string
           date?: string | null
           fournisseur?: string | null
+          id?: number
+          image_url?: string | null
           mode_paiement?: string | null
           total_ht?: number | null
           total_ttc?: number | null
           tva?: number | null
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: []
       }

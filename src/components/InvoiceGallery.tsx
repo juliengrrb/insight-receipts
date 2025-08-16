@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -6,116 +6,125 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Search, Calendar, Eye, Download, Filter, Folder, Receipt } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-// Mock data for invoices
-const mockInvoices = [
-  {
-    id: "1",
-    name: "Ticket Carrefour",
-    date: "2024-01-15",
-    category: "Grand Frais",
-    amount: 45.67,
-    store: "Carrefour Market",
-    image: "/api/placeholder/400/500",
-    extractedData: {
-      total: 45.67,
-      items: ["Pain", "Lait", "Fromage"],
-      address: "123 Rue de la Paix, Paris"
-    }
-  },
-  {
-    id: "2", 
-    name: "Facture Metro",
-    date: "2024-01-14",
-    category: "Metro",
-    amount: 156.89,
-    store: "Metro Cash & Carry",
-    image: "/api/placeholder/400/500",
-    extractedData: {
-      total: 156.89,
-      items: ["Légumes", "Viande", "Poisson"],
-      address: "456 Avenue du Commerce, Lyon"
-    }
-  },
-  {
-    id: "3",
-    name: "Ticket Pharmacie",
-    date: "2024-01-13",
-    category: "Pharmacie",
-    amount: 23.45,
-    store: "Pharmacie de la Ville",
-    image: "/api/placeholder/400/500",
-    extractedData: {
-      total: 23.45,
-      items: ["Médicaments", "Vitamines"],
-      address: "789 Place de la Santé, Marseille"
-    }
-  },
-  // Add more mock data for different days and categories
-  {
-    id: "4",
-    name: "Courses Monoprix",
-    date: "2024-01-12",
-    category: "Monoprix",
-    amount: 89.32,
-    store: "Monoprix Centre",
-    image: "/api/placeholder/400/500",
-    extractedData: {
-      total: 89.32,
-      items: ["Produits d'entretien", "Cosmétiques"],
-      address: "321 Boulevard Central, Nice"
-    }
-  }
-];
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { Separator } from "@/components/ui/separator";
 
 const categoryColors = {
-  "Grand Frais": "success",
-  "Metro": "primary",
-  "Pharmacie": "warning",
+  "Grand Frais": "secondary",
+  "Metro": "outline", 
+  "Pharmacie": "secondary",
   "Monoprix": "destructive",
-  "Autres": "secondary"
+  "Carrefour": "secondary",
+  "Autres": "outline"
 } as const;
 
 export const InvoiceGallery = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedDate, setSelectedDate] = useState<string>("all");
-  const [selectedInvoice, setSelectedInvoice] = useState<typeof mockInvoices[0] | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+  const [realInvoices, setRealInvoices] = useState<any[]>([]);
+  const { user } = useAuth();
 
-  // Get unique categories and dates
+  // Load user's invoices and listen for real-time updates
+  useEffect(() => {
+    if (!user) return;
+    
+    // Initial load
+    loadInvoices();
+
+    // Set up real-time subscription
+    const channel = supabase
+      .channel('invoice-gallery-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'Data base',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('Real-time update in gallery:', payload);
+          loadInvoices(); // Reload data when changes occur
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  const loadInvoices = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('Data base')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setRealInvoices(data || []);
+    } catch (error) {
+      console.error('Error loading invoices:', error);
+    }
+  };
+
+  // Get unique categories and dates from real invoices
   const categories = useMemo(() => {
-    const cats = Array.from(new Set(mockInvoices.map(inv => inv.category)));
-    return cats.sort();
-  }, []);
+    const uniqueCategories = Array.from(new Set(realInvoices.map(invoice => invoice.categorie).filter(Boolean)));
+    return uniqueCategories;
+  }, [realInvoices]);
 
   const dates = useMemo(() => {
-    const dates = Array.from(new Set(mockInvoices.map(inv => inv.date)));
-    return dates.sort().reverse();
-  }, []);
+    const uniqueDates = Array.from(new Set(realInvoices.map(invoice => {
+      return new Date(invoice.created_at).toLocaleDateString('fr-FR');
+    })));
+    return uniqueDates.sort().reverse(); // Most recent first
+  }, [realInvoices]);
 
-  // Filter invoices
+  // Filter invoices based on search term, category, and date
   const filteredInvoices = useMemo(() => {
-    return mockInvoices.filter(invoice => {
-      const matchesSearch = invoice.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           invoice.store.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesCategory = selectedCategory === "all" || invoice.category === selectedCategory;
-      const matchesDate = selectedDate === "all" || invoice.date === selectedDate;
+    return realInvoices.filter(invoice => {
+      const searchableText = [
+        invoice.article_description,
+        invoice.fournisseur,
+        invoice.categorie
+      ].filter(Boolean).join(' ').toLowerCase();
+      
+      const matchesSearch = searchableText.includes(searchTerm.toLowerCase());
+      const matchesCategory = selectedCategory === "all" || invoice.categorie === selectedCategory;
+      const invoiceDate = new Date(invoice.created_at).toLocaleDateString('fr-FR');
+      const matchesDate = selectedDate === "all" || invoiceDate === selectedDate;
       
       return matchesSearch && matchesCategory && matchesDate;
     });
-  }, [searchTerm, selectedCategory, selectedDate]);
+  }, [searchTerm, selectedCategory, selectedDate, realInvoices]);
 
-  // Group invoices by date
+  // Group filtered invoices by date
   const groupedInvoices = useMemo(() => {
-    const groups: Record<string, typeof mockInvoices> = {};
-    filteredInvoices.forEach(invoice => {
-      const date = invoice.date;
-      if (!groups[date]) {
-        groups[date] = [];
+    const groups = filteredInvoices.reduce((acc, invoice) => {
+      const date = new Date(invoice.created_at).toLocaleDateString('fr-FR');
+      if (!acc[date]) {
+        acc[date] = [];
       }
-      groups[date].push(invoice);
-    });
-    return groups;
+      acc[date].push(invoice);
+      return acc;
+    }, {} as Record<string, any[]>);
+
+    // Sort groups by date (most recent first)
+    const sortedGroups = Object.keys(groups)
+      .sort((a, b) => new Date(b.split('/').reverse().join('-')).getTime() - new Date(a.split('/').reverse().join('-')).getTime())
+      .reduce((acc, date) => {
+        acc[date] = groups[date];
+        return acc;
+      }, {} as Record<string, any[]>);
+
+    return sortedGroups;
   }, [filteredInvoices]);
 
   const formatDate = (dateString: string) => {
@@ -129,7 +138,7 @@ export const InvoiceGallery = () => {
   };
 
   const getCategoryBadgeVariant = (category: string) => {
-    return categoryColors[category as keyof typeof categoryColors] || "secondary";
+    return categoryColors[category as keyof typeof categoryColors] || "outline";
   };
 
   return (
@@ -142,7 +151,7 @@ export const InvoiceGallery = () => {
             Galerie des Factures
           </CardTitle>
           <CardDescription>
-            Parcourez et organisez toutes vos factures téléchargées
+            Parcourez et organisez toutes vos factures téléchargées et traitées automatiquement
           </CardDescription>
         </CardHeader>
       </Card>
@@ -188,7 +197,7 @@ export const InvoiceGallery = () => {
                 <SelectItem value="all">Toutes les dates</SelectItem>
                 {dates.map(date => (
                   <SelectItem key={date} value={date}>
-                    {formatDate(date)}
+                    {date}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -234,7 +243,7 @@ export const InvoiceGallery = () => {
             {/* Date Header */}
             <div className="flex items-center gap-3 py-2 border-b border-border">
               <Calendar className="h-5 w-5 text-primary" />
-              <h3 className="text-lg font-semibold">{formatDate(date)}</h3>
+              <h3 className="text-lg font-semibold">{date}</h3>
               <Badge variant="secondary" className="ml-auto">
                 {invoices.length} facture(s)
               </Badge>
@@ -249,32 +258,42 @@ export const InvoiceGallery = () => {
                       <CardContent className="p-4">
                         {/* Invoice Preview */}
                         <div className="aspect-[3/4] bg-muted rounded-lg mb-3 overflow-hidden">
-                          <div className="w-full h-full bg-gradient-to-br from-primary/10 to-success/10 flex items-center justify-center">
-                            <Receipt className="h-12 w-12 text-muted-foreground" />
-                          </div>
+                          {invoice.image_url ? (
+                            <img 
+                              src={invoice.image_url} 
+                              alt={invoice.article_description || 'Facture'}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-primary/10 to-success/10 flex items-center justify-center">
+                              <Receipt className="h-12 w-12 text-muted-foreground" />
+                            </div>
+                          )}
                         </div>
 
                         {/* Invoice Info */}
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <h4 className="font-medium text-sm truncate">{invoice.name}</h4>
+                            <h4 className="font-medium text-sm truncate">
+                              {invoice.article_description || invoice.fournisseur || 'Facture sans description'}
+                            </h4>
                             <Eye className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
                           </div>
                           
                           <div className="flex items-center justify-between">
                             <Badge 
                               variant="outline"
-                              className={`category-badge-${getCategoryBadgeVariant(invoice.category)} text-xs`}
+                              className={`category-badge-${getCategoryBadgeVariant(invoice.categorie || 'Autres')} text-xs`}
                             >
-                              {invoice.category}
+                              {invoice.categorie || 'Autre'}
                             </Badge>
                             <span className="font-bold text-primary">
-                              {invoice.amount.toFixed(2)}€
+                              €{invoice.total_ttc?.toFixed(2) || '0.00'}
                             </span>
                           </div>
                           
                           <p className="text-xs text-muted-foreground truncate">
-                            {invoice.store}
+                            {invoice.fournisseur || 'Fournisseur non spécifié'}
                           </p>
                         </div>
                       </CardContent>
@@ -286,10 +305,10 @@ export const InvoiceGallery = () => {
                     <DialogHeader>
                       <DialogTitle className="flex items-center gap-2">
                         <Receipt className="h-5 w-5 text-primary" />
-                        {invoice.name}
+                        {invoice.article_description || 'Facture'}
                       </DialogTitle>
                       <DialogDescription>
-                        Détails de la facture du {formatDate(invoice.date)}
+                        Détails de la facture du {new Date(invoice.created_at).toLocaleDateString('fr-FR')}
                       </DialogDescription>
                     </DialogHeader>
 
@@ -298,65 +317,136 @@ export const InvoiceGallery = () => {
                       <div className="space-y-4">
                         <h3 className="font-semibold">Aperçu de la facture</h3>
                         <div className="aspect-[3/4] bg-muted rounded-lg overflow-hidden">
-                          <div className="w-full h-full bg-gradient-to-br from-primary/10 to-success/10 flex items-center justify-center">
-                            <Receipt className="h-16 w-16 text-muted-foreground" />
-                          </div>
+                          {invoice.image_url ? (
+                            <img 
+                              src={invoice.image_url} 
+                              alt={invoice.article_description || 'Facture'}
+                              className="w-full h-full object-contain"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-primary/10 to-success/10 flex items-center justify-center">
+                              <Receipt className="h-16 w-16 text-muted-foreground" />
+                            </div>
+                          )}
                         </div>
-                        <Button className="w-full" variant="outline">
-                          <Download className="h-4 w-4 mr-2" />
-                          Télécharger l'original
-                        </Button>
+                        {invoice.image_url && (
+                          <Button className="w-full" variant="outline" asChild>
+                            <a href={invoice.image_url} target="_blank" rel="noopener noreferrer">
+                              <Download className="h-4 w-4 mr-2" />
+                              Télécharger l'original
+                            </a>
+                          </Button>
+                        )}
                       </div>
 
                       {/* Extracted Data */}
                       <div className="space-y-4">
                         <h3 className="font-semibold">Données extraites</h3>
                         
+                        {/* Basic Info */}
                         <Card>
                           <CardContent className="pt-4 space-y-3">
+                            {invoice.fournisseur && (
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm text-muted-foreground">Fournisseur:</span>
+                                <span className="font-medium">{invoice.fournisseur}</span>
+                              </div>
+                            )}
+                            {invoice.categorie && (
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm text-muted-foreground">Catégorie:</span>
+                                <Badge variant={getCategoryBadgeVariant(invoice.categorie)}>
+                                  {invoice.categorie}
+                                </Badge>
+                              </div>
+                            )}
                             <div className="flex justify-between items-center">
-                              <span className="text-sm text-muted-foreground">Magasin:</span>
-                              <span className="font-medium">{invoice.store}</span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-sm text-muted-foreground">Montant total:</span>
-                              <span className="font-bold text-lg text-primary">
-                                {invoice.extractedData.total.toFixed(2)}€
+                              <span className="text-sm text-muted-foreground">Date de traitement:</span>
+                              <span className="font-medium">
+                                {new Date(invoice.created_at).toLocaleDateString('fr-FR')}
                               </span>
                             </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-sm text-muted-foreground">Date:</span>
-                              <span className="font-medium">{formatDate(invoice.date)}</span>
-                            </div>
-                            <div className="flex justify-between items-start">
-                              <span className="text-sm text-muted-foreground">Adresse:</span>
-                              <span className="font-medium text-right text-sm">
-                                {invoice.extractedData.address}
-                              </span>
-                            </div>
+                            {invoice.date && (
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm text-muted-foreground">Date facture:</span>
+                                <span className="font-medium">
+                                  {new Date(invoice.date).toLocaleDateString('fr-FR')}
+                                </span>
+                              </div>
+                            )}
                           </CardContent>
                         </Card>
 
+                        {/* Financial Summary */}
                         <Card>
                           <CardHeader>
-                            <CardTitle className="text-base">Articles</CardTitle>
+                            <CardTitle className="text-base">Résumé financier</CardTitle>
                           </CardHeader>
-                          <CardContent>
-                            <ul className="space-y-2">
-                              {invoice.extractedData.items.map((item, index) => (
-                                <li key={index} className="flex items-center gap-2">
-                                  <div className="w-2 h-2 rounded-full bg-primary"></div>
-                                  <span className="text-sm">{item}</span>
-                                </li>
-                              ))}
-                            </ul>
+                          <CardContent className="space-y-2">
+                            {invoice.total_ht && (
+                              <div className="flex justify-between">
+                                <span className="text-sm text-muted-foreground">Total HT:</span>
+                                <span>€{invoice.total_ht.toFixed(2)}</span>
+                              </div>
+                            )}
+                            {invoice.tva && (
+                              <div className="flex justify-between">
+                                <span className="text-sm text-muted-foreground">TVA:</span>
+                                <span>€{invoice.tva.toFixed(2)}</span>
+                              </div>
+                            )}
+                            <Separator />
+                            <div className="flex justify-between font-medium text-lg">
+                              <span>Total TTC:</span>
+                              <span className="text-primary">€{invoice.total_ttc?.toFixed(2) || '0.00'}</span>
+                            </div>
                           </CardContent>
                         </Card>
 
-                        <Button className="w-full">
-                          <Download className="h-4 w-4 mr-2" />
-                          Exporter en Excel
-                        </Button>
+                        {/* Article Details */}
+                        {invoice.article_description && (
+                          <Card>
+                            <CardHeader>
+                              <CardTitle className="text-base">Détails de l'article</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-2">
+                              <div className="flex justify-between">
+                                <span className="text-sm text-muted-foreground">Description:</span>
+                                <span className="text-right max-w-48 text-sm">{invoice.article_description}</span>
+                              </div>
+                              {invoice.article_quantite && (
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-muted-foreground">Quantité:</span>
+                                  <span>{invoice.article_quantite}</span>
+                                </div>
+                              )}
+                              {invoice.article_prix_unitaire && (
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-muted-foreground">Prix unitaire:</span>
+                                  <span>€{invoice.article_prix_unitaire}</span>
+                                </div>
+                              )}
+                              {invoice.article_total && (
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-muted-foreground">Total article:</span>
+                                  <span>€{invoice.article_total}</span>
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        )}
+
+                        {/* Payment Method */}
+                        {invoice.mode_paiement && (
+                          <Card>
+                            <CardContent className="pt-4">
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm text-muted-foreground">Mode de paiement:</span>
+                                <span className="font-medium">{invoice.mode_paiement}</span>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        )}
                       </div>
                     </div>
                   </DialogContent>
@@ -373,9 +463,14 @@ export const InvoiceGallery = () => {
           <CardContent className="pt-6">
             <div className="text-center py-12">
               <Receipt className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">Aucune facture trouvée</h3>
+              <h3 className="text-lg font-semibold mb-2">
+                {realInvoices.length === 0 ? "Aucune facture trouvée" : "Aucun résultat"}
+              </h3>
               <p className="text-muted-foreground mb-4">
-                Essayez d'ajuster vos filtres ou téléchargez de nouvelles factures.
+                {realInvoices.length === 0 
+                  ? "Uploadez vos premières factures dans l'onglet Upload pour commencer."
+                  : "Essayez d'ajuster vos filtres pour voir plus de résultats."
+                }
               </p>
               <Button variant="outline" onClick={() => {
                 setSearchTerm("");

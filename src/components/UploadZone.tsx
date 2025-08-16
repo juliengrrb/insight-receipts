@@ -6,6 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { Upload, FileText, Image, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface UploadedFile {
   id: string;
@@ -15,6 +16,7 @@ interface UploadedFile {
   status: 'uploading' | 'success' | 'error';
   progress: number;
   preview?: string;
+  imageUrl?: string;
 }
 
 const WEBHOOK_URL = "https://n8n.srv892002.hstgr.cloud/webhook-test/ccb6a28e-56d1-4010-a152-7111fd59f575";
@@ -24,93 +26,110 @@ export const UploadZone = () => {
   const { toast } = useToast();
   const { user } = useAuth();
 
-  const simulateUpload = (file: UploadedFile) => {
-    const interval = setInterval(() => {
-      setUploadedFiles(prev => 
-        prev.map(f => {
-          if (f.id === file.id && f.progress < 100) {
-            const newProgress = f.progress + Math.random() * 15;
-            return { 
-              ...f, 
-              progress: Math.min(newProgress, 100),
-              status: newProgress >= 100 ? 'success' : 'uploading'
-            };
-          }
-          return f;
-        })
+  const uploadToSupabase = async (fileId: string, file: File) => {
+    if (!user) {
+      toast({
+        title: "Erreur",
+        description: "Vous devez être connecté pour uploader des fichiers",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Create unique filename with user ID
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('invoices')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('invoices')
+        .getPublicUrl(fileName);
+
+      // Update file status
+      setUploadedFiles(prev =>
+        prev.map(f => 
+          f.id === fileId 
+            ? { ...f, status: 'success' as const, progress: 100, imageUrl: publicUrl }
+            : f
+        )
       );
-    }, 200);
 
-    // Send to webhook after a short delay
-    setTimeout(async () => {
+      // Send webhook to n8n with user info and image URL
+      const webhookData = {
+        user_id: user.id,
+        image_url: publicUrl,
+        timestamp: new Date().toISOString(),
+      };
+
       try {
-        const webhookData = {
-          fileName: file.name,
-          fileSize: file.size,
-          fileType: file.type,
-          timestamp: new Date().toISOString(),
-          status: 'processed',
-          userId: user?.id,
-          userEmail: user?.email
-        };
-
-        // Use multiple approaches to ensure delivery
-        const promises = [
-          // Method 1: Standard fetch with no-cors
-          fetch(WEBHOOK_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(webhookData)
-          }).catch(() => null),
-          
-          // Method 2: Using navigator.sendBeacon as fallback
-          new Promise((resolve) => {
-            try {
-              const success = navigator.sendBeacon(
-                WEBHOOK_URL, 
-                JSON.stringify(webhookData)
-              );
-              resolve(success);
-            } catch {
-              resolve(false);
-            }
-          })
-        ];
-
-        // Wait for any method to succeed
-        await Promise.race(promises);
-
-        // Since we can't verify response with no-cors, assume success
-        setUploadedFiles(prev => 
-          prev.map(f => f.id === file.id ? { ...f, status: 'success' } : f)
-        );
-        
-        toast({
-          title: "Facture envoyée avec succès",
-          description: `${file.name} a été traité et envoyé au webhook.`,
+        await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(webhookData),
+          keepalive: true,
         });
 
-      } catch (error) {
-        console.error('Error sending to webhook:', error);
-        
-        // Even if there's an error, we'll show success since the webhook might have received it
-        setUploadedFiles(prev => 
-          prev.map(f => f.id === file.id ? { ...f, status: 'success' } : f)
-        );
-        
         toast({
-          title: "Facture envoyée",
-          description: `${file.name} a été envoyé au webhook (statut non vérifiable en raison des restrictions CORS).`,
+          title: "Fichier uploadé avec succès",
+          description: "Votre facture est en cours de traitement automatique.",
+        });
+      } catch (webhookError) {
+        console.error('Error sending webhook:', webhookError);
+        toast({
+          title: "Upload réussi",
+          description: "Fichier uploadé mais erreur lors de l'envoi du webhook.",
+          variant: "destructive",
         });
       }
-      clearInterval(interval);
-    }, 2000);
+
+    } catch (error) {
+      console.error('Upload error:', error);
+      setUploadedFiles(prev =>
+        prev.map(f => 
+          f.id === fileId 
+            ? { ...f, status: 'error' as const }
+            : f
+        )
+      );
+      
+      toast({
+        title: "Erreur d'upload",
+        description: "Impossible d'uploader le fichier. Veuillez réessayer.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const simulateProgress = async (fileId: string) => {
+    // Simulate upload progress
+    for (let progress = 0; progress <= 90; progress += 15) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      setUploadedFiles(prev => 
+        prev.map(f => f.id === fileId ? { ...f, progress } : f)
+      );
+    }
   };
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
+    if (!user) {
+      toast({
+        title: "Erreur",
+        description: "Vous devez être connecté pour uploader des fichiers",
+        variant: "destructive",
+      });
+      return;
+    }
+
     acceptedFiles.forEach((file) => {
       const fileId = Math.random().toString(36).substr(2, 9);
       const reader = new FileReader();
@@ -127,17 +146,21 @@ export const UploadZone = () => {
         };
 
         setUploadedFiles(prev => [...prev, newFile]);
-        simulateUpload(newFile);
+        
+        // Start progress simulation
+        simulateProgress(fileId);
+        // Start actual upload
+        uploadToSupabase(fileId, file);
 
         toast({
-          title: "Fichier ajouté",
-          description: `${file.name} est en cours de traitement...`,
+          title: "Upload en cours",
+          description: `${file.name} est en cours d'upload...`,
         });
       };
 
       reader.readAsDataURL(file);
     });
-  }, [toast]);
+  }, [toast, user]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -284,8 +307,8 @@ export const UploadZone = () => {
             <div className="space-y-1">
               <p className="font-medium">Traitement Automatique</p>
               <p className="text-sm text-muted-foreground">
-                Vos factures sont automatiquement envoyées au webhook pour extraction des données.
-                Les informations extraites seront disponibles dans l'onglet "Factures".
+                Vos factures sont automatiquement stockées dans Supabase et envoyées au webhook n8n pour extraction des données.
+                Les informations extraites seront visibles dans l'onglet "Factures" en temps réel.
               </p>
             </div>
           </div>
